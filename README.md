@@ -1,109 +1,116 @@
-# rsh - rust로 구현한 shell
+# rsh – Rust로 구현한 Shell  
+**Process 기반 실행 vs Thread 기반 실행 성능 비교 프로젝트**
 
-## 개요
+## 📌 개요
+`rsh`는 Rust로 구현한 Linux Shell입니다.  
+Bash와 유사한 기본 기능을 제공하며, 동일한 명령을 두 가지 실행 모델(process / thread)로 수행해 내부 실행 방식에 따른 성능 차이를 비교하는 것을 목적으로 합니다.
 
-`rsh`는 Rust로 구현한 성능, 병렬 실행 중심의 shell입니다.
-기존의 Bash/zsh와 같은 전통적인 Unix Shell이 단일 파이드라인 흐름과 직렬적인실횅 모델을 기반으로 하는 것과는 달리 Rust의 몰티스레딩, 메모리 안정성, 고성능 I/O를 활용해 더 빠르고 구조화된 실행 모델을 실험해봅니다.
+### 비교 대상 실행 모델
+- **process mode**  
+  - Bash와 유사한 구조  
+  - 각 명령을 OS 프로세스로 실행 (`Command::new`)  
+  - OS 파이프(`Stdio::piped`) 기반 처리  
 
-기존의 쉘들은 누적된 설계로 인해 아래와 같은 단점들이 있습니다.
+- **thread mode**  
+  - Rust 스레드 기반 실행 모델  
+  - 파이프는 channel 기반 스트림으로 처리  
+  - 컨텍스트 스위칭 비용이 적고 병렬성이 높음  
 
-- 파이프라인은 항상 직렬적으로 흐름을 타고 실행된다.
-- 여러 작업을 동시에 실행해도 병렬 최적화가 제한적이다.
-- 스크린트 언어 특성 상 복잡한 에러 처리와 동시성 관리가 어렵다.
-- 확장성 및 현대적 CPU(멀티코어) 구조를 적극적으로 활용하지 못한다.
-
-이번 프로젝트에서는 이러한 한계들을 Rust로 구현한 쉘에서 어떻게 극복되는지 실험적, 수치적으로 해석해보려고 합니다.
-
-## 프로젝트 기획 및 목적
-
-### 1. 전통 쉘의 구조에서 벗어난 새로운 실행 모델 구현
-
-명령 파이프라인과 백그라운드 작업을 멀티스레드 기반으로 병렬 처리하여 멀티코어 환경에서 실질적인 성능 이점을 제공하는 쉘을 구현합니다.
-
-### 2. Rust의 메모리 안전성과 프로세스 제어 능력 활용
-
-Rust의 시스템 프로그래밍 장점을 활용해서
-
-- 안전한 프로세스 실행
-- panic-safe 구조
-- 스레드 기반 I/O 파이프라인을 구축하여, 전통적인 쉘이 놓치고 있는 안정성과 확장성을 고려합니다.
-
-### 3. 병렬 파이프라인
-
-Bash/Zsh는 파이르롤 아래처럼 직렬로 처리합니다.
-
+쉘 내부에서 실행 모드를 전환할 수 있습니다:
 ```
-cmd1 | cmd2 | cmd3 | cmd4
+rsh> mode process
+rsh> mode thread
 ```
 
-rsh는 다음을 목표로 합니다.
+---
 
-- 각 단계별 스레드 실행
-- 스트림 기반 병렬 처리
-- CPU 코어 최대로 활용
+## 📚 제공 기능 (Features)
 
-이를 통해 로그 분석이나 빅파일 처리, 개발 환경에서 체감 성능 향상을 목적으로 합니다.
-
-### 4. 직관적이면서 확장 가능한 shell 설계
-
-rsh는 Rust 모듈 구조를 활용합니다.
-
-- parser
-- executor
-- threadpool
-- job manager
-
-## 기능들 (Features)
-
-### 기본 명령 실행
-
+### ✔ 기본 명령 실행
 ```
 rsh> ls -al
 ```
 
-### 파이프라인
-
+### ✔ 파이프라인
 ```
 rsh> ls | grep src | wc -l
 ```
 
-### 병렬 파이프라인 (Rust의 고유 기능)
-
+### ✔ 리다이렉션
 ```
-rsh> heavy1 | heavy2 | heavy3
-```
-
-### 백그라운드 실행
-
-```
-rsh> long_task &
-[1] started
+rsh> echo hi > out.txt
 ```
 
-### job 관리
+### ✔ 백그라운드 실행 (&)
+```
+rsh> sleep 3 &
+```
 
+### ✔ job 관리
 ```
 rsh> jobs
-[1] running long_task
-[2] done    sleep 3
 ```
 
-### 내장 명령어
+### ✔ 내부 명령어
+- cd  
+- exit  
+- help  
+- jobs  
+- kill  
+- mode (process/thread)
 
-- cd
-- exit
-- jobs
-- kill
-- help
+---
 
-### 아키텍쳐 구조
+## 🏛 아키텍처 구조
 
-```rsh/
-├── main.rs         # REPL loop (프롬프트)
-├── parser.rs       # 명령어 파싱 (파이프/시퀀스/& 지원)
-├── executor.rs     # 프로세스 실행 / 파이프 처리 / 스레드 분배
-├── threadpool.rs   # 백그라운드 작업용 ThreadPool
-├── job.rs          # Job 상태 관리
-├── builtins.rs     # 내장 명령어 cd, exit, jobs 등
-└── util.rs         # 헬퍼 함수
 ```
+rsh/
+├── main.rs            # REPL, 모드 관리
+├── parser.rs          # 파이프/리다이렉션/& 파싱
+├── builtins.rs        # cd, exit, mode 등 내장 명령어
+├── executor/
+│   ├── process.rs     # 프로세스 기반 실행 엔진
+│   └── thread.rs      # 스레드 기반 실행 엔진
+├── job.rs             # 백그라운드 job 관리
+└── util.rs            # 공용 유틸리티
+```
+
+---
+
+## 🛠 기능 구현 로드맵 (WBS)
+
+### 1단계 — Shell 기본 골격
+- REPL 루프  
+- 사용자 입력 처리  
+- 공백 단위 토큰 파싱  
+
+### 2단계 — 기본 명령 실행
+- 단일 명령 실행  
+- Command::new 기반 프로세스 생성  
+
+### 3단계 — 파이프라인 구현
+- `|` 파싱  
+- process mode: `Stdio::piped()` 연결  
+- thread mode: channel 기반 스트림 처리  
+
+### 4단계 — 리다이렉션 구현
+- `>` 처리  
+- stdout redirect  
+
+### 5단계 — 백그라운드 실행(&) + job manager
+- bg 태스크 등록  
+- job 리스트 관리  
+
+### 6단계 — 내장 명령어 구현
+- cd, exit, help  
+- jobs, kill, mode  
+
+### 7단계 — process mode 완성
+- 파이프/리다이렉션 통합  
+- 종료 코드 처리  
+- 여러 명령 체인 처리  
+
+### 8단계 — thread mode 완성
+- 스레드 기반 파이프 스트림  
+- reader/writer 구조  
+- join handle 관리  
