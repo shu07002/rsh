@@ -1,5 +1,9 @@
+mod parser;
+
 use std::io::{self, Write};
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+use parser::{Command as ParsedCommand, ParseError, SimpleCommand};
 
 // io: 입출력 표준 라이브러리
 // Write: flush() 처럼 출력 조작을 위해서 사용
@@ -34,29 +38,64 @@ fn main() {
             break;
         }
 
-        // 명령 파싱
-        let mut parts = input.split_whitespace();
-        // 공백 기준으로 명령어들 파싱해서 이터레이터 반환
-        let cmd = parts.next().unwrap();
-        // 이터레이터의 첫번째 항목을 꺼냄
-
-        let args: Vec<&str> = parts.collect();
-        // 나머지 항목들을 벡터로 수집
-        // 파츠들은 이터레이터 이기 때문에 collect()로 벡터로 변환 가능
-
-        // Linux: 실행 가능한 명령만 찾으면 됨
-        let result = Command::new(cmd)
-            .args(&args)
-            .spawn();
-
-        match result {
-            Ok(mut child) => {
-                // 외부 프로그램 종료 대기
-                child.wait().unwrap();
+        match parser::parse(input) {
+            Ok(ParsedCommand::Pipeline(cmds)) => {
+                if let Err(e) = pipeline_exec(&cmds) {
+                    eprintln!("pipeline error: {}", e);
+                }
             }
+            Ok(ParsedCommand::Simple(cmd)) => execute_simple(&cmd),
+            Err(ParseError::EmptyInput) => continue,
             Err(e) => {
-                eprintln!("명령 실행 실패: {}", e);
+                eprintln!("parse error: {}", e);
             }
         }
     }
+}
+
+fn execute_simple(cmd: &SimpleCommand) {
+    let result = Command::new(&cmd.program).args(&cmd.args).spawn();
+
+    match result {
+        Ok(mut child) => {
+            // 외부 프로그램 종료 대기
+            child.wait().unwrap();
+        }
+        Err(e) => {
+            eprintln!("failed executing command: {}", e);
+        }
+    }
+}
+
+fn pipeline_exec(commands: &[SimpleCommand]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut previous = None;
+    let mut children = Vec::new();
+
+    for (i, cmd) in commands.iter().enumerate() {
+        let mut command = Command::new(&cmd.program);
+        command.args(&cmd.args);
+
+        // stdin 연결
+        if let Some(output) = previous {
+            command.stdin(Stdio::from(output));
+        }
+
+        // stdout 연결: 마지막 명령만 inherit
+        if i == commands.len() - 1 {
+            command.stdout(Stdio::inherit());
+        } else {
+            command.stdout(Stdio::piped());
+        }
+
+        let mut child = command.spawn()?;
+        previous = child.stdout.take();
+        children.push(child);
+    }
+
+    // 모든 child wait
+    for mut child in children {
+        let _ = child.wait();
+    }
+
+    Ok(())
 }
