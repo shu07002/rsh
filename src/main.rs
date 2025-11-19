@@ -1,6 +1,7 @@
 mod parser;
 
 use std::io::{self, Write};
+use std::fs::{File, OpenOptions};
 use std::process::{Command, Stdio};
 
 use parser::{Command as ParsedCommand, ParseError, SimpleCommand};
@@ -54,15 +55,51 @@ fn main() {
 }
 
 fn execute_simple(cmd: &SimpleCommand) {
-    let result = Command::new(&cmd.program).args(&cmd.args).spawn();
+    let mut process = Command::new(&cmd.program);
+    process.args(&cmd.args);
 
-    match result {
-        Ok(mut child) => {
-            // 외부 프로그램 종료 대기
-            child.wait().unwrap();
+    if let Some(ref file) = cmd.redirect_in {
+        match File::open(file) {
+            Ok(f) => {
+                process.stdin(Stdio::from(f));
+            },
+            Err(e) => {
+                eprintln!("failed to open input file {}: {}", file, e);
+                return;
+            }
         }
+    }
+
+    if let Some(ref file) = cmd.redirect_out {
+        match File::create(file) {
+            Ok(f) => {
+                process.stdout(Stdio::from(f));
+            }
+            Err(e) => {
+                eprintln!("failed to open output file {}: {}", file, e);
+                return;
+            }
+        };
+    }
+
+    if let Some(ref file) = cmd.append_out {
+        match OpenOptions::new().append(true).create(true).open(file) {
+            Ok(f) => {
+                process.stdout(Stdio::from(f));
+            },
+            Err(e) => {
+                eprintln!("failed to open output file {}: {}", file, e);
+                return;
+            }
+        };
+    }
+
+    match process.spawn() {
+        Ok(mut child) => {
+            let _ = child.wait();
+        },
         Err(e) => {
-            eprintln!("failed executing command: {}", e);
+            eprintln!("failed to execute {}: {}", cmd.program, e);
         }
     }
 }
@@ -75,19 +112,37 @@ fn pipeline_exec(commands: &[SimpleCommand]) -> Result<(), Box<dyn std::error::E
         let mut command = Command::new(&cmd.program);
         command.args(&cmd.args);
 
-        // stdin 연결
-        if let Some(output) = previous {
-            command.stdin(Stdio::from(output));
+        if i == 0 {
+            if let Some(ref file) = cmd.redirect_in {
+                let f = File::open(file)?;
+                command.stdin(Stdio::from(f));
+            } else if let Some(output) = previous {
+                command.stdin(Stdio::from(output));
+            }
+        } else {
+            if let Some(output) = previous {
+                command.stdin(Stdio::from(output));
+            }
         }
 
         // stdout 연결: 마지막 명령만 inherit
         if i == commands.len() - 1 {
-            command.stdout(Stdio::inherit());
+            
+            if let Some(ref file) = cmd.redirect_out {
+                let f = File::create(file)?;
+                command.stdout(Stdio::from(f));
+            } else if let Some(ref file) = cmd.append_out {
+                let f = OpenOptions::new().append(true).create(true).open(file)?;
+                command.stdout(Stdio::from(f));
+            } else {
+                command.stdout(Stdio::inherit());
+            }
         } else {
             command.stdout(Stdio::piped());
         }
 
         let mut child = command.spawn()?;
+        
         previous = child.stdout.take();
         children.push(child);
     }
