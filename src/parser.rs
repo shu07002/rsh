@@ -82,7 +82,6 @@ fn parse_simple(segment: &str) -> Result<SimpleCommand, ParseError> {
     let mut redirect_in = None;
     let mut redirect_out = None;
     let mut append_out = None;
-    let mut background = false;
 
 
     let mut i = 1;
