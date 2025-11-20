@@ -184,8 +184,8 @@ fn pipeline_exec(commands: &[SimpleCommand], cmdline: &str) -> Result<(), Box<dy
             pids.push(child.id());
         }
 
-        job::add_pipeline_job(pids, cmdline.to_string());
-        println!("[bg] pipeline job started");
+        let id = job::add_pipeline_job(pids, cmdline.to_string());
+        println!("[bg] background pipeline job started, job id: {}", id);
         return Ok(());
     }
 

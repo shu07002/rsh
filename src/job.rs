@@ -34,7 +34,7 @@ fn next_id() -> usize {
 }
 
 /// pipeline job 등록
-pub fn add_pipeline_job(pids: Vec<u32>, cmdline: String) {
+pub fn add_pipeline_job(pids: Vec<u32>, cmdline: String) -> usize {
     let job = Job {
         id: next_id(),
         pids,
@@ -42,8 +42,12 @@ pub fn add_pipeline_job(pids: Vec<u32>, cmdline: String) {
         state: JobState::Running,
     };
 
+    let id = job.id;
+
     let mut jobs = table().lock().unwrap();
     jobs.push(job);
+    
+    id
 }
 
 /// 단일 프로세스 job 등록
