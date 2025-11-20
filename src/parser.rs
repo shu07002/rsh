@@ -15,6 +15,8 @@ pub struct SimpleCommand {
     pub redirect_in: Option<String>,
     pub redirect_out: Option<String>,
     pub append_out: Option<String>,
+
+    pub background: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,36 +64,48 @@ pub fn parse(input: &str) -> Result<Command, ParseError> {
 }
 
 fn parse_simple(segment: &str) -> Result<SimpleCommand, ParseError> {
-    let mut tokens= segment.split_whitespace().peekable();
+    let mut tokens: Vec<&str> = segment.split_whitespace().collect();
 
-    let program = match tokens.next() {
-        Some(p) => p.to_string(),
-        None => return Err(ParseError::EmptyCommand)
-    };
+    let mut background = false;
+    if let Some(&"&") = tokens.last() {
+        background = true;
+        tokens.pop();
+    }
+
+    if tokens.is_empty() {
+        return Err(ParseError::EmptyCommand);
+    }
+
+    let program = tokens[0].to_string();
 
     let mut args = Vec::new();
     let mut redirect_in = None;
     let mut redirect_out = None;
     let mut append_out = None;
+    let mut background = false;
 
-    while let Some(tk) = tokens.next() {
-        match tk {
+
+    let mut i = 1;
+
+    while i < tokens.len() {
+        match tokens[i] {
             "<" => {
-                let file = tokens.next().ok_or(ParseError::EmptyCommand)?;
-                redirect_in = Some(file.to_string());
+                i += 1;
+                redirect_in = Some(tokens[i].to_string());
             }
             ">" => {
-                let file = tokens.next().ok_or(ParseError::EmptyCommand)?;
-                redirect_out = Some(file.to_string());
+                i += 1;
+                redirect_out = Some(tokens[i].to_string());
             }
             ">>" => {
-                let file = tokens.next().ok_or(ParseError::EmptyCommand)?;
-                append_out = Some(file.to_string());
+                i += 1;
+                append_out = Some(tokens[i].to_string());
             }
             _=> {
-                args.push(tk.to_string());
+                args.push(tokens[i].to_string());
             }
         }
+        i += 1;
     }
 
 
@@ -101,5 +115,6 @@ fn parse_simple(segment: &str) -> Result<SimpleCommand, ParseError> {
         redirect_in,
         redirect_out,
         append_out,
+        background
     })
 }
