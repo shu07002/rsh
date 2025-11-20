@@ -1,4 +1,5 @@
 mod parser;
+mod job;
 
 use std::io::{self, Write};
 use std::fs::{File, OpenOptions};
@@ -39,13 +40,28 @@ fn main() {
             break;
         }
 
+        if input == "jobs" {
+            job::list_jobs();
+            continue;
+        }
+
+        // kill %n
+        if input.starts_with("kill %") {
+            if let Some(idstr) = input.strip_prefix("kill %") {
+                if let Ok(id) = idstr.parse::<usize>() {
+                    job::kill_job(id);
+                }
+            }
+            continue;
+        }
+
         match parser::parse(input) {
             Ok(ParsedCommand::Pipeline(cmds)) => {
-                if let Err(e) = pipeline_exec(&cmds) {
+                if let Err(e) = pipeline_exec(&cmds, input) {
                     eprintln!("pipeline error: {}", e);
                 }
             }
-            Ok(ParsedCommand::Simple(cmd)) => execute_simple(&cmd),
+            Ok(ParsedCommand::Simple(cmd)) => execute_simple(&cmd, input),
             Err(ParseError::EmptyInput) => continue,
             Err(e) => {
                 eprintln!("parse error: {}", e);
@@ -54,7 +70,7 @@ fn main() {
     }
 }
 
-fn execute_simple(cmd: &SimpleCommand) {
+fn execute_simple(cmd: &SimpleCommand, cmdline: &str) {
     let mut process = Command::new(&cmd.program);
     process.args(&cmd.args);
 
@@ -96,7 +112,14 @@ fn execute_simple(cmd: &SimpleCommand) {
 
     match process.spawn() {
         Ok(mut child) => {
-            let _ = child.wait();
+            if  cmd.background {
+                // 백그라운드 실행 시 바로 리턴
+                println!("[bg] pid:{} {:?}", child.id(), cmd.program);
+                job::add_single_job(child.id(), cmdline.to_string());
+            } else {
+                // 포그라운드 실행 시 완료 대기
+                let _ = child.wait();
+            }
         },
         Err(e) => {
             eprintln!("failed to execute {}: {}", cmd.program, e);
@@ -104,9 +127,12 @@ fn execute_simple(cmd: &SimpleCommand) {
     }
 }
 
-fn pipeline_exec(commands: &[SimpleCommand]) -> Result<(), Box<dyn std::error::Error>> {
+fn pipeline_exec(commands: &[SimpleCommand], cmdline: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut previous = None;
     let mut children = Vec::new();
+    
+
+    let background = commands.last().unwrap().background;
 
     for (i, cmd) in commands.iter().enumerate() {
         let mut command = Command::new(&cmd.program);
@@ -145,6 +171,16 @@ fn pipeline_exec(commands: &[SimpleCommand]) -> Result<(), Box<dyn std::error::E
         
         previous = child.stdout.take();
         children.push(child);
+    }
+
+    if background {
+        let mut pids = Vec::new();
+        for child in &children {
+            pids.push(child.id());
+        }
+
+        job::add_pipeline_job(pids, cmdline.to_string());
+        return Ok(());
     }
 
     // 모든 child wait
