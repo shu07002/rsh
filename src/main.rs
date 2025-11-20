@@ -161,7 +161,12 @@ fn pipeline_exec(commands: &[SimpleCommand], cmdline: &str) -> Result<(), Box<dy
                 let f = OpenOptions::new().append(true).create(true).open(file)?;
                 command.stdout(Stdio::from(f));
             } else {
-                command.stdout(Stdio::inherit());
+                if background {
+                    // 백그라운드면 stdout을 부모 터미널로 보내지 않는다
+                    command.stdout(Stdio::null());
+                } else {
+                    command.stdout(Stdio::inherit());
+                }
             }
         } else {
             command.stdout(Stdio::piped());
@@ -180,6 +185,7 @@ fn pipeline_exec(commands: &[SimpleCommand], cmdline: &str) -> Result<(), Box<dy
         }
 
         job::add_pipeline_job(pids, cmdline.to_string());
+        println!("[bg] pipeline job started");
         return Ok(());
     }
 
